@@ -50,10 +50,19 @@ func NewTestCommand(globalClientOpts *connectors.ClientOptions) *cobra.Command {
 		Short: "Run tests on Microcks",
 		Long:  `Run tests on Microcks`,
 		Run: func(cmd *cobra.Command, args []string) {
+			var dryRunTeardown func()
+			exit := func(code int) {
+				if dryRunTeardown != nil {
+					dryRunTeardown()
+					dryRunTeardown = nil
+				}
+				os.Exit(code)
+			}
+
 			// Parse subcommand args first.
 			if len(os.Args) < 4 {
 				fmt.Println("test command require <apiName:apiVersion> <testEndpoint> <runner> args")
-				os.Exit(1)
+				exit(1)
 			}
 
 			serviceRef := args[0]
@@ -64,24 +73,29 @@ func NewTestCommand(globalClientOpts *connectors.ClientOptions) *cobra.Command {
 			// Validate presence and values of args.
 			if len(serviceRef) == 0 || strings.HasPrefix(serviceRef, "-") {
 				fmt.Println("test command require <apiName:apiVersion> <testEndpoint> <runner> args")
-				os.Exit(1)
+				exit(1)
 			}
 			if len(testEndpoint) == 0 || strings.HasPrefix(testEndpoint, "-") {
 				fmt.Println("test command require <apiName:apiVersion> <testEndpoint> <runner> args")
-				os.Exit(1)
+				exit(1)
 			}
 			if len(runnerType) == 0 || strings.HasPrefix(runnerType, "-") {
 				fmt.Println("test command require <apiName:apiVersion> <testEndpoint> <runner> args")
-				os.Exit(1)
+				exit(1)
 			}
 			if _, validChoice := runnerChoices[runnerType]; !validChoice {
 				fmt.Println("<runner> should be one of: HTTP, SOAP, SOAP_UI, POSTMAN, OPEN_API_SCHEMA, ASYNC_API_SCHEMA, GRPC_PROTOBUF, GRAPHQL_SCHEMA")
-				os.Exit(1)
+				exit(1)
 			}
 
 			// Validate presence and values of flags.
 			if !strings.HasSuffix(waitFor, "milli") && !strings.HasSuffix(waitFor, "sec") && !strings.HasSuffix(waitFor, "min") {
-				fmt.Println("--waitFor format is wrong. Applying default 5sec")
+				fmt.Println("--waitFor format is wrong. Accepted units are: milli, sec, min (e.g. 500milli, 30sec, 5min)")
+				exit(1)
+			}
+			if format != "text" && format != "github-actions" {
+				fmt.Println("--format should be one of: text, github-actions")
+				exit(1)
 			}
 
 			// Collect optional HTTPS transport flags.
@@ -90,15 +104,28 @@ func NewTestCommand(globalClientOpts *connectors.ClientOptions) *cobra.Command {
 			config.Verbose = globalClientOpts.Verbose
 
 			// Compute time to wait in milliseconds.
-			var waitForMilliseconds int64 = 5000
+			var waitForMilliseconds int64
 			if strings.HasSuffix(waitFor, "milli") {
-				waitForMilliseconds, _ = strconv.ParseInt(waitFor[:len(waitFor)-5], 0, 64)
+				n, err := strconv.ParseInt(waitFor[:len(waitFor)-5], 0, 64)
+				if err != nil {
+					fmt.Printf("--waitFor value %q is not a valid number\n", waitFor)
+					exit(1)
+				}
+				waitForMilliseconds = n
 			} else if strings.HasSuffix(waitFor, "sec") {
-				waitForMilliseconds, _ = strconv.ParseInt(waitFor[:len(waitFor)-3], 0, 64)
-				waitForMilliseconds = waitForMilliseconds * 1000
+				n, err := strconv.ParseInt(waitFor[:len(waitFor)-3], 0, 64)
+				if err != nil {
+					fmt.Printf("--waitFor value %q is not a valid number\n", waitFor)
+					exit(1)
+				}
+				waitForMilliseconds = n * 1000
 			} else if strings.HasSuffix(waitFor, "min") {
-				waitForMilliseconds, _ = strconv.ParseInt(waitFor[:len(waitFor)-3], 0, 64)
-				waitForMilliseconds = waitForMilliseconds * 60 * 1000
+				n, err := strconv.ParseInt(waitFor[:len(waitFor)-3], 0, 64)
+				if err != nil {
+					fmt.Printf("--waitFor value %q is not a valid number\n", waitFor)
+					exit(1)
+				}
+				waitForMilliseconds = n * 60 * 1000
 			}
 
 			var mc connectors.MicrocksClient
@@ -107,22 +134,22 @@ func NewTestCommand(globalClientOpts *connectors.ClientOptions) *cobra.Command {
 			if dryRun {
 				if specFile == "" {
 					fmt.Println("--dry-run requires --spec-file")
-					os.Exit(1)
+					exit(1)
 				}
 				ctx := context.Background()
 				dr, err := startDryRunContainer(ctx, specFile)
 				if err != nil {
 					fmt.Printf("Got error starting dry-run container: %s\n", err)
-					os.Exit(1)
+					exit(1)
 				}
-				defer dr.teardown()
+				dryRunTeardown = dr.teardown
 				mc = dr.client
 				serverAddr = dr.apiURL
 				// use the Microcks mock endpoint as the test target so the round-trip is self-contained
 				testEndpoint, err = dr.restMockEndpoint(ctx, serviceRef)
 				if err != nil {
 					fmt.Printf("Got error resolving mock endpoint: %s\n", err)
-					os.Exit(1)
+					exit(1)
 				}
 				fmt.Printf("Testing against mock endpoint: %s\n", testEndpoint)
 			} else if globalClientOpts.ServerAddr != "" && globalClientOpts.ClientId != "" && globalClientOpts.ClientSecret != "" {
@@ -134,7 +161,7 @@ func NewTestCommand(globalClientOpts *connectors.ClientOptions) *cobra.Command {
 				keycloakURL, err := mc.GetKeycloakURL()
 				if err != nil {
 					fmt.Printf("Got error when invoking Microcks client retrieving config: %s", err)
-					os.Exit(1)
+					exit(1)
 				}
 
 				var oauthToken string = "unauthentifed-token"
@@ -145,7 +172,7 @@ func NewTestCommand(globalClientOpts *connectors.ClientOptions) *cobra.Command {
 					oauthToken, err = kc.ConnectAndGetToken()
 					if err != nil {
 						fmt.Printf("Got error when invoking Keycloack client: %s", err)
-						os.Exit(1)
+						exit(1)
 					}
 					//fmt.Printf("Retrieve OAuthToken: %s", oauthToken)
 				}
@@ -185,7 +212,7 @@ func NewTestCommand(globalClientOpts *connectors.ClientOptions) *cobra.Command {
 			testResultID, err := mc.CreateTestResult(serviceRef, testEndpoint, runnerType, secretName, waitForMilliseconds, filteredOperations, operationsHeaders, oAuth2Context)
 			if err != nil {
 				fmt.Printf("Got error when invoking Microcks client creating Test: %s", err)
-				os.Exit(1)
+				exit(1)
 			}
 			//fmt.Printf("Retrieve TestResult ID: %s", testResultID)
 
@@ -203,7 +230,7 @@ func NewTestCommand(globalClientOpts *connectors.ClientOptions) *cobra.Command {
 				testResultSummary, err = mc.GetTestResult(testResultID)
 				if err != nil {
 					fmt.Printf("Got error when invoking Microcks client check TestResult: %s", err)
-					os.Exit(1)
+					exit(1)
 				}
 				success = testResultSummary.Success
 				inProgress := testResultSummary.InProgress
@@ -220,11 +247,15 @@ func NewTestCommand(globalClientOpts *connectors.ClientOptions) *cobra.Command {
 			if format == "github-actions" {
 				PrintGitHubActionsResult(testResultSummary, serverAddr, testResultID)
 			} else {
-				fmt.Printf("Full TestResult details are available here: %s/#/tests/%s \n", serverAddr, testResultID)
+				PrintTextResult(testResultSummary, serverAddr, testResultID)
 			}
 
 			if !success {
-				os.Exit(1)
+				exit(1)
+			}
+			if dryRunTeardown != nil {
+				dryRunTeardown()
+				dryRunTeardown = nil
 			}
 		},
 	}

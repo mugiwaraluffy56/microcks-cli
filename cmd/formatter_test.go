@@ -97,6 +97,14 @@ func TestPrintGitHubActionsResult_WritesStepSummaryFile(t *testing.T) {
 	assert.True(t, strings.Contains(body, "test-123"))
 }
 
+func TestPrintTextResult_WritesResultLink(t *testing.T) {
+	out := captureStdout(func() {
+		PrintTextResult(testSummary(), "http://microcks.example.com", "test-123")
+	})
+
+	assert.Equal(t, "Full TestResult details are available here: http://microcks.example.com/#/tests/test-123 \n", out)
+}
+
 func TestPrintGitHubActionsResult_NilSummaryDoesNotPanic(t *testing.T) {
 	assert.NotPanics(t, func() {
 		captureStdout(func() {

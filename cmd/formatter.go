@@ -17,30 +17,43 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/microcks/microcks-cli/pkg/connectors"
 )
 
+// PrintTextResult writes the default test result link.
+func PrintTextResult(summary *connectors.TestResultSummary, serverAddr, testResultID string) {
+	printTextResult(os.Stdout, serverAddr, testResultID)
+}
+
 // PrintGitHubActionsResult writes per-operation failure annotations and a step summary table.
 func PrintGitHubActionsResult(summary *connectors.TestResultSummary, serverAddr, testResultID string) {
+	printGitHubActionsResult(os.Stdout, summary, serverAddr, testResultID, os.Getenv("GITHUB_STEP_SUMMARY"))
+}
+
+func printTextResult(w io.Writer, serverAddr, testResultID string) {
+	fmt.Fprintf(w, "Full TestResult details are available here: %s/#/tests/%s \n", serverAddr, testResultID)
+}
+
+func printGitHubActionsResult(w io.Writer, summary *connectors.TestResultSummary, serverAddr, testResultID, summaryFile string) {
 	if summary == nil {
 		return
 	}
 
 	for _, tc := range summary.TestCaseResults {
 		if !tc.Success {
-			fmt.Printf("::error title=Test Failed::%s - operation %s failed after %dms\n",
+			fmt.Fprintf(w, "::error title=Test Failed::%s - operation %s failed after %dms\n",
 				summary.ServiceID, tc.OperationName, tc.ElapsedTime)
 		}
 	}
 
-	summaryFile := os.Getenv("GITHUB_STEP_SUMMARY")
 	if summaryFile != "" {
 		f, err := os.OpenFile(summaryFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if err == nil {
 			defer f.Close()
-			fmt.Fprintf(f, "## Microcks test result — %s\n\n", summary.ServiceID)
+			fmt.Fprintf(f, "## Microcks test result - %s\n\n", summary.ServiceID)
 			fmt.Fprintf(f, "| operation | result | elapsed (ms) |\n")
 			fmt.Fprintf(f, "|---|---|---|\n")
 			for _, tc := range summary.TestCaseResults {
@@ -54,5 +67,5 @@ func PrintGitHubActionsResult(summary *connectors.TestResultSummary, serverAddr,
 		}
 	}
 
-	fmt.Printf("Full TestResult details are available here: %s/#/tests/%s \n", serverAddr, testResultID)
+	printTextResult(w, serverAddr, testResultID)
 }
