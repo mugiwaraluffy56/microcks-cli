@@ -17,8 +17,11 @@ export class ServiceItem extends vscode.TreeItem {
 
 export class OperationItem extends vscode.TreeItem {
   constructor(public readonly operation: MicrocksOperation) {
+    const label = operation.name.startsWith(operation.method)
+      ? operation.name
+      : `${operation.method} ${operation.name}`;
     super(
-      operation.name,
+      label,
       vscode.TreeItemCollapsibleState.None
     );
     this.iconPath = new vscode.ThemeIcon("symbol-method");

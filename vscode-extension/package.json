@@ -9,7 +9,12 @@
     "vscode": "^1.85.0"
   },
   "categories": ["Other"],
-  "activationEvents": ["onStartupFinished"],
+  "activationEvents": [
+    "onStartupFinished",
+    "onView:microcksServices",
+    "onCommand:microcks.refresh",
+    "onCommand:microcks.configure"
+  ],
   "main": "./out/extension.js",
   "contributes": {
     "configuration": {
@@ -27,8 +32,17 @@
         }
       }
     },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "microcks",
+          "title": "Microcks",
+          "icon": "resources/microcks-icon-color.svg"
+        }
+      ]
+    },
     "views": {
-      "explorer": [
+      "microcks": [
         {
           "id": "microcksServices",
           "name": "Microcks Services"
